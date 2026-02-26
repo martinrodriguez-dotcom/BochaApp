@@ -1,0 +1,39 @@
+{
+  "name": "Mis Finanzas Personales",
+  "short_name": "Finanzas",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "https://api.iconify.design/lucide:wallet.svg?color=%2310b981",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
+**2. Crea un archivo llamado `sw.js` (Service Worker) y pega esto:**
+```javascript
+// Este código es el mínimo necesario para que Chrome/Android 
+// apruebe la aplicación como instalable.
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (e) => {
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (e) => {
+  // No hacemos nada, solo dejamos que el navegador maneje la petición por defecto
+});
+
+---
+
+### ¿Cómo se instala en el celular una vez que subes esto?
+
+* 🍎 **En iOS (iPhone):** Tienes que abrir tu enlace de Netlify en **Safari**, tocar el botón de "Compartir" (el cuadrado con la flecha hacia arriba) y seleccionar **"Agregar a la pantalla de inicio"**. Gracias a las etiquetas que agregamos, se abrirá como una app completa sin la barra de direcciones del navegador.
+* 🤖 **En Android:** Abres tu enlace en **Google Chrome** y, al cabo de unos segundos, te saltará un cartel en la parte inferior que dirá **"Instalar aplicación"** o "Agregar a la pantalla principal". Si no sale, tocas los 3 puntitos arriba a la derecha y le das a "Instalar aplicación".
