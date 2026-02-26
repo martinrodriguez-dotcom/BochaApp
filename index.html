@@ -5,6 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mis Finanzas Personales</title>
   
+  <!-- Etiquetas PWA para iOS y Android -->
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Finanzas">
+  <link rel="apple-touch-icon" href="https://api.iconify.design/lucide:wallet.svg?color=%2310b981">
+  <link rel="manifest" href="./manifest.json">
+
+  <!-- Registro del Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW error:', err));
+      });
+    }
+  </script>
+
   <!-- Tailwind CSS para los estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
   
