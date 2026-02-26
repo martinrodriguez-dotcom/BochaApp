@@ -54,7 +54,7 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Wallet, CalendarDays, PlusCircle, ArrowUpRight, ArrowDownRight, 
-      LayoutList, ChevronLeft, ChevronRight, Trash2, Loader2, Pencil 
+      LayoutList, ChevronLeft, ChevronRight, Trash2, Loader2, Pencil, Tags, ChevronDown, ChevronUp
     } from 'lucide-react';
     
     // Importaciones de Firebase
@@ -80,6 +80,8 @@
     // Funciones para obtener referencias seguras por usuario
     const getCollectionRef = () => collection(db, 'usuarios', auth.currentUser.uid, 'movimientos');
     const getDocRef = (id) => doc(db, 'usuarios', auth.currentUser.uid, 'movimientos', id);
+    const getCategoriesRef = () => collection(db, 'usuarios', auth.currentUser.uid, 'categorias');
+    const getCategoryDocRef = (id) => doc(db, 'usuarios', auth.currentUser.uid, 'categorias', id);
 
     // Utilidad para formatear moneda
     const formatCurrency = (amount) => {
@@ -93,6 +95,7 @@
 
     // Utilidad para formatear fechas
     const formatDate = (dateStr) => {
+      if (!dateStr) return '';
       const [year, month, day] = dateStr.split('-');
       return `${day}/${month}/${year}`;
     };
@@ -103,6 +106,7 @@
     function App() {
       const [activeTab, setActiveTab] = useState('planilla');
       const [transactions, setTransactions] = useState([]);
+      const [categories, setCategories] = useState([]);
       const [user, setUser] = useState(null);
       const [isLoading, setIsLoading] = useState(true);
 
@@ -119,15 +123,18 @@
         return () => unsubscribe();
       }, []);
 
-      // 2. Escuchar la base de datos de Firestore
+      // 2. Escuchar la base de datos de Firestore (Movimientos y Categorías)
       useEffect(() => {
         if (!user) {
             setTransactions([]);
+            setCategories([]);
             return;
         }
 
         setIsLoading(true);
-        const unsubscribe = onSnapshot(
+        
+        // Listener para movimientos
+        const unsubscribeTxs = onSnapshot(
           getCollectionRef(), 
           (snapshot) => {
             const data = [];
@@ -135,15 +142,31 @@
               data.push({ id: doc.id, ...doc.data() });
             });
             setTransactions(data);
+          },
+          (error) => console.error("Error obteniendo movimientos:", error)
+        );
+
+        // Listener para categorías
+        const unsubscribeCats = onSnapshot(
+          getCategoriesRef(), 
+          (snapshot) => {
+            const data = [];
+            snapshot.forEach((doc) => {
+              data.push({ id: doc.id, ...doc.data() });
+            });
+            setCategories(data);
             setIsLoading(false);
           },
           (error) => {
-            console.error("Error obteniendo datos:", error);
-            setIsLoading(false);
+             console.error("Error obteniendo categorías:", error);
+             setIsLoading(false);
           }
         );
 
-        return () => unsubscribe();
+        return () => {
+          unsubscribeTxs();
+          unsubscribeCats();
+        };
       }, [user]);
 
       const addTransaction = async (newTx) => {
@@ -153,6 +176,16 @@
         } catch (error) {
           console.error("Error guardando:", error);
           alert("Error al guardar. Revisa la consola.");
+        }
+      };
+
+      const updateTransaction = async (id, updatedTx) => {
+        if (!user) return;
+        try {
+          await updateDoc(getDocRef(id), updatedTx);
+        } catch (error) {
+          console.error("Error actualizando:", error);
+          alert("Error al actualizar. Revisa la consola.");
         }
       };
 
@@ -167,15 +200,31 @@
         }
       };
 
-      const updateTransaction = async (id, updatedTx) => {
-        if (!user) return;
+      const addCategory = async (name) => {
+        if (!user || !name.trim()) return;
         try {
-          await updateDoc(getDocRef(id), updatedTx);
+          // Verificar si ya existe (búsqueda simple en memoria)
+          const exists = categories.find(c => c.name.toLowerCase() === name.trim().toLowerCase());
+          if (exists) {
+            alert("Esta categoría ya existe.");
+            return;
+          }
+          await addDoc(getCategoriesRef(), { name: name.trim() });
         } catch (error) {
-          console.error("Error actualizando:", error);
-          alert("Error al actualizar. Revisa la consola.");
+          console.error("Error guardando categoría:", error);
         }
       };
+
+      const deleteCategory = async (id) => {
+         if (!user) return;
+         if(window.confirm('¿Eliminar esta categoría? Los movimientos asociados seguirán existiendo pero sin categoría asignada.')) {
+            try {
+              await deleteDoc(getCategoryDocRef(id));
+            } catch (error) {
+              console.error("Error eliminando categoría:", error);
+            }
+         }
+      }
 
       if (!user || isLoading) {
          return (
@@ -198,6 +247,10 @@
                 <LayoutList className="w-5 h-5" />
                 <span className="font-medium">Planilla General</span>
               </button>
+              <button onClick={() => setActiveTab('categorias')} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'categorias' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
+                <Tags className="w-5 h-5" />
+                <span className="font-medium">Categorías</span>
+              </button>
               <button onClick={() => setActiveTab('futuros')} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'futuros' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
                 <PlusCircle className="w-5 h-5" />
                 <span className="font-medium">Agregar Futuros</span>
@@ -210,8 +263,9 @@
           </nav>
           <main className="flex-1 p-4 md:p-8 overflow-y-auto">
             <div className="max-w-6xl mx-auto">
-              {activeTab === 'planilla' && <Planilla transactions={transactions} onAdd={addTransaction} onDelete={deleteTransaction} onUpdate={updateTransaction} />}
-              {activeTab === 'futuros' && <AgregarFuturos onAdd={addTransaction} />}
+              {activeTab === 'planilla' && <Planilla transactions={transactions} categories={categories} onAdd={addTransaction} onDelete={deleteTransaction} onUpdate={updateTransaction} onAddCategory={addCategory} />}
+              {activeTab === 'categorias' && <CategoriasView transactions={transactions} categories={categories} onAddCategory={addCategory} onDeleteCategory={deleteCategory} />}
+              {activeTab === 'futuros' && <AgregarFuturos categories={categories} onAdd={addTransaction} onAddCategory={addCategory} />}
               {activeTab === 'calendario' && <Calendario transactions={transactions} />}
             </div>
           </main>
@@ -222,7 +276,7 @@
     // ==========================================
     // COMPONENTE: PLANILLA
     // ==========================================
-    function Planilla({ transactions, onAdd, onDelete, onUpdate }) {
+    function Planilla({ transactions, categories, onAdd, onDelete, onUpdate, onAddCategory }) {
       const getTodayDate = () => {
          const d = new Date();
          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -233,10 +287,13 @@
         type: 'gasto',
         description: '',
         amount: '',
-        date: getTodayDate()
+        date: getTodayDate(),
+        categoryId: ''
       });
 
       const [editingTx, setEditingTx] = useState(null);
+      const [showNewCatModal, setShowNewCatModal] = useState(false);
+      const [newCatName, setNewCatName] = useState('');
 
       const handleQuickSubmit = (e) => {
         e.preventDefault();
@@ -245,19 +302,28 @@
           type: quickForm.type,
           description: quickForm.description,
           amount: parseFloat(quickForm.amount),
-          date: quickForm.date
+          date: quickForm.date,
+          categoryId: quickForm.categoryId
         });
         setQuickForm(prev => ({ ...prev, description: '', amount: '' }));
       };
+
+      const handleAddCategorySubmit = (e) => {
+         e.preventDefault();
+         onAddCategory(newCatName);
+         setNewCatName('');
+         setShowNewCatModal(false);
+      }
 
       const processedData = useMemo(() => {
         const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
         let currentBalance = 0;
         return sorted.map(tx => {
           currentBalance += tx.type === 'ingreso' ? tx.amount : -tx.amount;
-          return { ...tx, balance: currentBalance };
+          const cat = categories.find(c => c.id === tx.categoryId);
+          return { ...tx, balance: currentBalance, categoryName: cat ? cat.name : 'Sin categoría' };
         });
-      }, [transactions]);
+      }, [transactions, categories]);
 
       const currentTotal = processedData.length > 0 ? processedData[processedData.length - 1].balance : 0;
 
@@ -265,8 +331,8 @@
         <div className="space-y-6">
           <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <div>
-              <h2 className="text-2xl font-bold text-slate-800">Planilla de Movimientos</h2>
-              <p className="text-slate-500">Historial completo de ingresos y gastos.</p>
+              <h2 className="text-2xl font-bold text-slate-800">Planilla General</h2>
+              <p className="text-slate-500">Saldo general de todas las categorías.</p>
             </div>
             <div className="bg-slate-50 px-6 py-4 rounded-xl border border-slate-100 w-full md:w-auto">
               <p className="text-sm font-medium text-slate-500 mb-1">Saldo Actual Total</p>
@@ -296,6 +362,18 @@
                 <option value="ingreso">Ingreso</option>
               </select>
             </div>
+            <div className="w-full md:w-auto flex-1">
+               <label className="block text-xs font-medium text-slate-500 mb-1">Categoría</label>
+               <div className="flex gap-1">
+                  <select className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={quickForm.categoryId} onChange={(e) => setQuickForm({...quickForm, categoryId: e.target.value})}>
+                    <option value="">Ninguna</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setShowNewCatModal(true)} className="px-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors border border-slate-200" title="Nueva Categoría">
+                     <PlusCircle className="w-4 h-4" />
+                  </button>
+               </div>
+            </div>
             <button type="submit" className="w-full md:w-auto px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-sm flex items-center justify-center gap-2 h-[38px] transition-colors">
               <PlusCircle className="w-4 h-4" /> Agregar
             </button>
@@ -307,21 +385,24 @@
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider border-b border-slate-100">
                   <th className="p-4 font-medium">Fecha</th>
-                  <th className="p-4 font-medium">Descripción</th>
+                  <th className="p-4 font-medium">Descripción / Categoría</th>
                   <th className="p-4 font-medium text-right">Ingreso</th>
                   <th className="p-4 font-medium text-right">Gasto</th>
-                  <th className="p-4 font-medium text-right">Saldo</th>
+                  <th className="p-4 font-medium text-right">Saldo Gral.</th>
                   <th className="p-4 font-medium text-center">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {processedData.length === 0 ? (
-                  <tr><td colSpan="6" className="p-8 text-center text-slate-500">No hay movimientos.</td></tr>
+                  <tr><td colSpan="6" className="p-8 text-center text-slate-500">No hay movimientos registrados.</td></tr>
                 ) : (
-                  processedData.map((tx) => (
+                  [...processedData].reverse().map((tx) => (
                     <tr key={tx.id} className="hover:bg-slate-50/50">
-                      <td className="p-4 text-sm text-slate-600">{formatDate(tx.date)}</td>
-                      <td className="p-4 text-slate-800">{tx.description}</td>
+                      <td className="p-4 text-sm text-slate-600 whitespace-nowrap">{formatDate(tx.date)}</td>
+                      <td className="p-4 text-slate-800">
+                         {tx.description}
+                         <div className="text-xs text-slate-400 mt-0.5">{tx.categoryName}</div>
+                      </td>
                       <td className="p-4 text-right font-medium text-emerald-600">{tx.type === 'ingreso' ? `+ ${formatCurrency(tx.amount)}` : '-'}</td>
                       <td className="p-4 text-right font-medium text-rose-600">{tx.type === 'gasto' ? `- ${formatCurrency(tx.amount)}` : '-'}</td>
                       <td className={`p-4 text-right font-bold ${tx.balance >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>{formatCurrency(tx.balance)}</td>
@@ -343,12 +424,12 @@
             {processedData.length === 0 ? (
               <div className="bg-white p-8 rounded-2xl text-center text-slate-500">No hay movimientos.</div>
             ) : (
-              processedData.map((tx) => (
+              [...processedData].reverse().map((tx) => (
                 <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3">
                   <div className="flex justify-between items-start border-b border-slate-50 pb-3">
                     <div>
                       <h4 className="font-semibold text-slate-800">{tx.description}</h4>
-                      <p className="text-xs text-slate-500">{formatDate(tx.date)}</p>
+                      <p className="text-xs text-slate-500">{formatDate(tx.date)} • {tx.categoryName}</p>
                     </div>
                     <div className="flex gap-1">
                       <button onClick={() => setEditingTx(tx)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-slate-50 hover:bg-blue-50 rounded-md"><Pencil className="w-4 h-4" /></button>
@@ -372,6 +453,22 @@
             )}
           </div>
 
+          {/* Modal de Nueva Categoría */}
+          {showNewCatModal && (
+            <div className="fixed inset-0 bg-slate-900/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+               <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Nueva Categoría</h3>
+                  <form onSubmit={handleAddCategorySubmit}>
+                     <input type="text" required placeholder="Ej. Supermercado, Sueldo..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-sm mb-4" value={newCatName} onChange={e => setNewCatName(e.target.value)} autoFocus />
+                     <div className="flex gap-3">
+                        <button type="button" onClick={() => setShowNewCatModal(false)} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors">Cancelar</button>
+                        <button type="submit" className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors">Crear</button>
+                     </div>
+                  </form>
+               </div>
+            </div>
+          )}
+
           {/* Modal de Edición */}
           {editingTx && (
             <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
@@ -388,7 +485,8 @@
                     date: editingTx.date,
                     description: editingTx.description,
                     amount: parseFloat(editingTx.amount),
-                    type: editingTx.type
+                    type: editingTx.type,
+                    categoryId: editingTx.categoryId || ''
                   });
                   setEditingTx(null);
                 }} className="space-y-4">
@@ -404,12 +502,21 @@
                     <label className="block text-xs font-medium text-slate-500 mb-1">Monto ($)</label>
                     <input type="number" required min="0" step="0.01" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm" value={editingTx.amount} onChange={e => setEditingTx({...editingTx, amount: e.target.value})} />
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Tipo</label>
-                    <select className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-medium" value={editingTx.type} onChange={e => setEditingTx({...editingTx, type: e.target.value})}>
-                      <option value="gasto">Gasto</option>
-                      <option value="ingreso">Ingreso</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-4">
+                     <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Tipo</label>
+                        <select className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-medium" value={editingTx.type} onChange={e => setEditingTx({...editingTx, type: e.target.value})}>
+                           <option value="gasto">Gasto</option>
+                           <option value="ingreso">Ingreso</option>
+                        </select>
+                     </div>
+                     <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Categoría</label>
+                        <select className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm" value={editingTx.categoryId || ''} onChange={e => setEditingTx({...editingTx, categoryId: e.target.value})}>
+                           <option value="">Ninguna</option>
+                           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                     </div>
                   </div>
                   <div className="flex gap-3 pt-4">
                     <button type="button" onClick={() => setEditingTx(null)} className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors">Cancelar</button>
@@ -426,10 +533,173 @@
     }
 
     // ==========================================
+    // COMPONENTE: CATEGORÍAS (Nueva Vista)
+    // ==========================================
+    function CategoriasView({ transactions, categories, onAddCategory, onDeleteCategory }) {
+      const [showNewCatModal, setShowNewCatModal] = useState(false);
+      const [newCatName, setNewCatName] = useState('');
+      const [expandedCat, setExpandedCat] = useState(null); // ID de la categoría expandida
+
+      const handleAddCategorySubmit = (e) => {
+         e.preventDefault();
+         onAddCategory(newCatName);
+         setNewCatName('');
+         setShowNewCatModal(false);
+      }
+
+      // Procesar datos por categoría
+      const categoryData = useMemo(() => {
+         return categories.map(cat => {
+            // Filtrar y ordenar movimientos de esta categoría
+            const catTxs = transactions
+               .filter(t => t.categoryId === cat.id)
+               .sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            let totalIncome = 0;
+            let totalExpense = 0;
+            
+            // Calcular saldos acumulados fila por fila para el detalle
+            let currentBalance = 0;
+            const detailedTxs = catTxs.map(tx => {
+               if(tx.type === 'ingreso') {
+                  totalIncome += tx.amount;
+                  currentBalance += tx.amount;
+               } else {
+                  totalExpense += tx.amount;
+                  currentBalance -= tx.amount;
+               }
+               return { ...tx, balance: currentBalance };
+            });
+
+            return {
+               ...cat,
+               totalIncome,
+               totalExpense,
+               balance: totalIncome - totalExpense,
+               transactions: [...detailedTxs].reverse() // Mostrar más recientes primero en el detalle
+            };
+         });
+      }, [transactions, categories]);
+
+      return (
+         <div className="space-y-6 animate-in fade-in duration-300">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+               <div>
+                  <h2 className="text-2xl font-bold text-slate-800">Tus Categorías</h2>
+                  <p className="text-slate-500">Analiza tus ingresos y gastos por rubro.</p>
+               </div>
+               <button onClick={() => setShowNewCatModal(true)} className="px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-xl transition-colors flex items-center gap-2 w-full md:w-auto justify-center">
+                  <PlusCircle className="w-5 h-5" /> Nueva Categoría
+               </button>
+            </header>
+
+            {categories.length === 0 ? (
+               <div className="bg-white p-12 rounded-2xl shadow-sm border border-slate-100 text-center">
+                  <Tags className="w-12 h-12 mx-auto text-slate-300 mb-4" />
+                  <h3 className="text-lg font-medium text-slate-800 mb-1">Aún no tienes categorías</h3>
+                  <p className="text-slate-500">Crea categorías como "Supermercado", "Servicios" o "Sueldo" para organizar tus finanzas.</p>
+               </div>
+            ) : (
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {categoryData.map(cat => {
+                     const isExpanded = expandedCat === cat.id;
+                     return (
+                        <div key={cat.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex flex-col h-auto transition-all">
+                           {/* Tarjeta de la categoría (Cabecera clickeable) */}
+                           <div 
+                              className={`p-5 cursor-pointer hover:bg-slate-50 transition-colors flex flex-col ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
+                              onClick={() => setExpandedCat(isExpanded ? null : cat.id)}
+                           >
+                              <div className="flex justify-between items-start mb-4">
+                                 <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                    <Tags className="w-4 h-4 text-slate-400" /> {cat.name}
+                                 </h3>
+                                 <button onClick={(e) => { e.stopPropagation(); onDeleteCategory(cat.id); }} className="text-slate-300 hover:text-rose-500 p-1" title="Eliminar categoría">
+                                    <Trash2 className="w-4 h-4" />
+                                 </button>
+                              </div>
+                              
+                              <div className="flex justify-between items-end">
+                                 <div>
+                                    <p className="text-[10px] uppercase font-semibold text-slate-400 mb-1">Saldo Total</p>
+                                    <p className={`text-xl font-bold ${cat.balance >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
+                                       {formatCurrency(cat.balance)}
+                                    </p>
+                                 </div>
+                                 <div className="text-slate-400 bg-white p-1 rounded-full shadow-sm border border-slate-100">
+                                    {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                 </div>
+                              </div>
+
+                              <div className="flex gap-4 mt-4 pt-3 border-t border-slate-100/50">
+                                 <div className="flex-1">
+                                    <p className="text-[10px] text-slate-400">Ingresos</p>
+                                    <p className="text-xs font-semibold text-emerald-600">{formatCurrency(cat.totalIncome)}</p>
+                                 </div>
+                                 <div className="flex-1">
+                                    <p className="text-[10px] text-slate-400">Gastos</p>
+                                    <p className="text-xs font-semibold text-rose-600">{formatCurrency(cat.totalExpense)}</p>
+                                 </div>
+                              </div>
+                           </div>
+
+                           {/* Detalle Desplegable */}
+                           {isExpanded && (
+                              <div className="bg-slate-50/50 flex-1 border-t border-slate-100 max-h-80 overflow-y-auto">
+                                 {cat.transactions.length === 0 ? (
+                                    <p className="p-6 text-center text-sm text-slate-500">No hay movimientos en esta categoría.</p>
+                                 ) : (
+                                    <div className="divide-y divide-slate-100">
+                                       {cat.transactions.map(tx => (
+                                          <div key={tx.id} className="p-4 flex justify-between items-center hover:bg-white transition-colors">
+                                             <div>
+                                                <p className="text-sm font-medium text-slate-800">{tx.description}</p>
+                                                <p className="text-[10px] text-slate-500">{formatDate(tx.date)}</p>
+                                             </div>
+                                             <div className="text-right">
+                                                <p className={`text-sm font-bold ${tx.type === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                   {tx.type === 'ingreso' ? '+' : '-'}{formatCurrency(tx.amount)}
+                                                </p>
+                                                <p className="text-[10px] text-slate-400 font-medium">Saldo: {formatCurrency(tx.balance)}</p>
+                                             </div>
+                                          </div>
+                                       ))}
+                                    </div>
+                                 )}
+                              </div>
+                           )}
+                        </div>
+                     );
+                  })}
+               </div>
+            )}
+
+            {/* Modal de Nueva Categoría */}
+            {showNewCatModal && (
+               <div className="fixed inset-0 bg-slate-900/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                     <h3 className="text-lg font-bold text-slate-800 mb-4">Nueva Categoría</h3>
+                     <form onSubmit={handleAddCategorySubmit}>
+                        <input type="text" required placeholder="Ej. Supermercado, Sueldo..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-sm mb-4" value={newCatName} onChange={e => setNewCatName(e.target.value)} autoFocus />
+                        <div className="flex gap-3">
+                           <button type="button" onClick={() => setShowNewCatModal(false)} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors">Cancelar</button>
+                           <button type="submit" className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors">Crear</button>
+                        </div>
+                     </form>
+                  </div>
+               </div>
+            )}
+         </div>
+      );
+    }
+
+    // ==========================================
     // COMPONENTE: AGREGAR FUTUROS
     // ==========================================
-    function AgregarFuturos({ onAdd }) {
-      const [formData, setFormData] = useState({ type: 'gasto', description: '', amount: '', date: '' });
+    function AgregarFuturos({ categories, onAdd, onAddCategory }) {
+      const [formData, setFormData] = useState({ type: 'gasto', description: '', amount: '', date: '', categoryId: '' });
+      const [showNewCatModal, setShowNewCatModal] = useState(false);
+      const [newCatName, setNewCatName] = useState('');
 
       const handleSubmit = (e) => {
         e.preventDefault();
@@ -437,6 +707,13 @@
         setFormData(prev => ({ ...prev, description: '', amount: '', date: '' }));
         alert('Movimiento programado exitosamente');
       };
+
+      const handleAddCategorySubmit = (e) => {
+         e.preventDefault();
+         onAddCategory(newCatName);
+         setNewCatName('');
+         setShowNewCatModal(false);
+      }
 
       return (
         <div className="max-w-2xl mx-auto space-y-6">
@@ -464,11 +741,39 @@
                   <input type="date" required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
                 </div>
               </div>
+              <div>
+                 <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
+                 <div className="flex gap-2">
+                     <select className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white" value={formData.categoryId} onChange={(e) => setFormData({...formData, categoryId: e.target.value})}>
+                        <option value="">Ninguna</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                     </select>
+                     <button type="button" onClick={() => setShowNewCatModal(true)} className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors border border-slate-200 font-medium whitespace-nowrap flex items-center gap-2">
+                        <PlusCircle className="w-5 h-5" /> Nueva
+                     </button>
+                 </div>
+              </div>
             </div>
-            <button type="submit" className="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-xl flex justify-center items-center gap-2 transition-colors">
+            <button type="submit" className="w-full py-4 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-xl flex justify-center items-center gap-2 transition-colors mt-4">
               <PlusCircle className="w-5 h-5" /> Guardar Movimiento
             </button>
           </form>
+
+          {/* Modal de Nueva Categoría */}
+          {showNewCatModal && (
+               <div className="fixed inset-0 bg-slate-900/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+                     <h3 className="text-lg font-bold text-slate-800 mb-4">Nueva Categoría</h3>
+                     <form onSubmit={handleAddCategorySubmit}>
+                        <input type="text" required placeholder="Ej. Supermercado, Sueldo..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-sm mb-4" value={newCatName} onChange={e => setNewCatName(e.target.value)} autoFocus />
+                        <div className="flex gap-3">
+                           <button type="button" onClick={() => setShowNewCatModal(false)} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors">Cancelar</button>
+                           <button type="submit" className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors">Crear</button>
+                        </div>
+                     </form>
+                  </div>
+               </div>
+            )}
         </div>
       );
     }
