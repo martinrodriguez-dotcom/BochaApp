@@ -54,12 +54,13 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Wallet, CalendarDays, PlusCircle, ArrowUpRight, ArrowDownRight, 
-      LayoutList, ChevronLeft, ChevronRight, Trash2, Loader2, Pencil, Tags, ChevronDown, ChevronUp
+      LayoutList, ChevronLeft, ChevronRight, Trash2, Loader2, Pencil, Tags, ChevronDown, ChevronUp,
+      Menu, X, LogOut
     } from 'lucide-react';
     
     // Importaciones de Firebase
     import { initializeApp } from "firebase/app";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
     import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 
     // Tu configuración de Firebase
@@ -109,15 +110,20 @@
       const [categories, setCategories] = useState([]);
       const [user, setUser] = useState(null);
       const [isLoading, setIsLoading] = useState(true);
+      const [isAuthChecking, setIsAuthChecking] = useState(true);
+      const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+      
+      // Estados para login
+      const [authMode, setAuthMode] = useState('login'); // 'login' o 'register'
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [authError, setAuthError] = useState('');
 
-      // 1. Iniciar sesión anónima automáticamente
+      // 1. Escuchar estado de autenticación (Login/Logout)
       useEffect(() => {
-        signInAnonymously(auth).catch((error) => {
-          console.error("Error iniciando sesión:", error);
-        });
-
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
           setUser(currentUser);
+          setIsAuthChecking(false);
         });
 
         return () => unsubscribe();
@@ -226,42 +232,144 @@
          }
       }
 
-      if (!user || isLoading) {
+      const handleAuth = async (e) => {
+        e.preventDefault();
+        setAuthError('');
+        try {
+            if (authMode === 'login') {
+                await signInWithEmailAndPassword(auth, email, password);
+            } else {
+                await createUserWithEmailAndPassword(auth, email, password);
+            }
+        } catch (error) {
+            console.error("Auth error:", error);
+            switch(error.code) {
+                case 'auth/invalid-email': setAuthError('Correo electrónico inválido.'); break;
+                case 'auth/user-not-found': setAuthError('Usuario no encontrado.'); break;
+                case 'auth/wrong-password': setAuthError('Contraseña incorrecta.'); break;
+                case 'auth/email-already-in-use': setAuthError('Este correo ya está registrado.'); break;
+                case 'auth/weak-password': setAuthError('La contraseña debe tener al menos 6 caracteres.'); break;
+                case 'auth/invalid-credential': setAuthError('Credenciales incorrectas.'); break;
+                default: setAuthError('Ocurrió un error al procesar la solicitud.');
+            }
+        }
+      };
+
+      const handleLogout = async () => {
+        try {
+            await signOut(auth);
+            setTransactions([]);
+            setCategories([]);
+            setIsMobileMenuOpen(false);
+        } catch (error) {
+            console.error("Error al cerrar sesión", error);
+        }
+      };
+
+      if (isAuthChecking) {
          return (
            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4">
              <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
-             <p className="text-slate-500 font-medium">Conectando a la nube...</p>
+             <p className="text-slate-500 font-medium">Verificando sesión...</p>
+           </div>
+         );
+      }
+
+      if (!user) {
+         return (
+            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+                <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100 w-full max-w-md animate-in zoom-in-95 duration-300">
+                    <div className="flex flex-col items-center mb-8">
+                        <Wallet className="w-12 h-12 text-emerald-500 mb-4" />
+                        <h2 className="text-2xl font-bold text-slate-800">Mis Finanzas</h2>
+                        <p className="text-slate-500 mt-2 text-center text-sm">Inicia sesión para gestionar tus gastos e ingresos desde cualquier dispositivo.</p>
+                    </div>
+                    
+                    <form onSubmit={handleAuth} className="space-y-4">
+                        {authError && <div className="p-3 bg-rose-50 text-rose-600 rounded-xl text-sm font-medium text-center">{authError}</div>}
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Correo Electrónico</label>
+                            <input type="email" required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={email} onChange={e => setEmail(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+                            <input type="password" required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={password} onChange={e => setPassword(e.target.value)} />
+                        </div>
+                        
+                        <button type="submit" className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-xl transition-colors mt-2">
+                            {authMode === 'login' ? 'Iniciar Sesión' : 'Crear Cuenta'}
+                        </button>
+                    </form>
+                    
+                    <div className="mt-6 text-center">
+                        <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }} className="text-emerald-600 hover:text-emerald-700 font-medium text-sm transition-colors">
+                            {authMode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+         );
+      }
+
+      if (isLoading) {
+         return (
+           <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4">
+             <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
+             <p className="text-slate-500 font-medium">Cargando tus datos...</p>
            </div>
          );
       }
 
       return (
-        <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row">
-          <nav className="bg-slate-900 text-white md:w-64 flex-shrink-0 md:min-h-screen p-4 flex flex-row md:flex-col justify-between md:justify-start gap-4 overflow-x-auto">
-            <div className="flex items-center gap-3 mb-2 md:mb-8 md:px-2">
+        <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row relative">
+          
+          {/* Header Móvil con Menú Hamburguesa */}
+          <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center z-50 sticky top-0 w-full h-[60px]">
+             <div className="flex items-center gap-2">
+                <Wallet className="w-6 h-6 text-emerald-400" />
+                <h1 className="font-bold">Mis Finanzas</h1>
+             </div>
+             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-1 hover:bg-slate-800 rounded-lg transition-colors">
+                {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+             </button>
+          </div>
+
+          <nav className={`${isMobileMenuOpen ? 'flex' : 'hidden'} md:flex bg-slate-900 text-white md:w-64 flex-shrink-0 md:min-h-screen p-4 flex-col gap-2 absolute md:relative z-40 w-full top-[60px] md:top-0 h-[calc(100vh-60px)] md:h-auto left-0`}>
+            <div className="hidden md:flex items-center gap-3 mb-8 px-2">
               <Wallet className="w-8 h-8 text-emerald-400" />
-              <h1 className="text-xl font-bold tracking-tight hidden md:block">Mis Finanzas</h1>
+              <h1 className="text-xl font-bold tracking-tight">Mis Finanzas</h1>
             </div>
-            <div className="flex flex-row md:flex-col gap-2">
-              <button onClick={() => setActiveTab('planilla')} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'planilla' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
+            <div className="flex flex-col gap-2 flex-1">
+              <button onClick={() => { setActiveTab('planilla'); setIsMobileMenuOpen(false); }} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'planilla' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
                 <LayoutList className="w-5 h-5" />
                 <span className="font-medium">Planilla General</span>
               </button>
-              <button onClick={() => setActiveTab('categorias')} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'categorias' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
+              <button onClick={() => { setActiveTab('categorias'); setIsMobileMenuOpen(false); }} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'categorias' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
                 <Tags className="w-5 h-5" />
                 <span className="font-medium">Categorías</span>
               </button>
-              <button onClick={() => setActiveTab('futuros')} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'futuros' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
+              <button onClick={() => { setActiveTab('futuros'); setIsMobileMenuOpen(false); }} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'futuros' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
                 <PlusCircle className="w-5 h-5" />
                 <span className="font-medium">Agregar Futuros</span>
               </button>
-              <button onClick={() => setActiveTab('calendario')} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'calendario' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
+              <button onClick={() => { setActiveTab('calendario'); setIsMobileMenuOpen(false); }} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors whitespace-nowrap ${activeTab === 'calendario' ? 'bg-slate-800 text-emerald-400' : 'hover:bg-slate-800/50'}`}>
                 <CalendarDays className="w-5 h-5" />
                 <span className="font-medium">Calendario Mensual</span>
               </button>
             </div>
+            
+            <div className="mt-auto pt-4 border-t border-slate-800 pb-4 md:pb-0">
+               <div className="px-4 py-3 mb-2 hidden md:block">
+                  <p className="text-xs text-slate-400 truncate">{user.email}</p>
+               </div>
+               <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-rose-400 hover:bg-slate-800/50">
+                  <LogOut className="w-5 h-5" />
+                  <span className="font-medium">Cerrar Sesión</span>
+               </button>
+            </div>
           </nav>
-          <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+          <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full md:w-auto">
             <div className="max-w-6xl mx-auto">
               {activeTab === 'planilla' && <Planilla transactions={transactions} categories={categories} onAdd={addTransaction} onDelete={deleteTransaction} onUpdate={updateTransaction} onAddCategory={addCategory} />}
               {activeTab === 'categorias' && <CategoriasView transactions={transactions} categories={categories} onAddCategory={addCategory} onDeleteCategory={deleteCategory} />}
