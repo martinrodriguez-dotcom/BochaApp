@@ -374,7 +374,7 @@
               {activeTab === 'planilla' && <Planilla transactions={transactions} categories={categories} onAdd={addTransaction} onDelete={deleteTransaction} onUpdate={updateTransaction} onAddCategory={addCategory} />}
               {activeTab === 'categorias' && <CategoriasView transactions={transactions} categories={categories} onAddCategory={addCategory} onDeleteCategory={deleteCategory} />}
               {activeTab === 'futuros' && <AgregarFuturos categories={categories} onAdd={addTransaction} onAddCategory={addCategory} />}
-              {activeTab === 'calendario' && <Calendario transactions={transactions} />}
+              {activeTab === 'calendario' && <Calendario transactions={transactions} categories={categories} onAdd={addTransaction} onDelete={deleteTransaction} />}
             </div>
           </main>
         </div>
@@ -889,8 +889,10 @@
     // ==========================================
     // COMPONENTE: CALENDARIO
     // ==========================================
-    function Calendario({ transactions }) {
+    function Calendario({ transactions, categories, onAdd, onDelete }) {
       const [currentDate, setCurrentDate] = useState(new Date());
+      const [selectedDateStr, setSelectedDateStr] = useState(null);
+      const [newTx, setNewTx] = useState({ description: '', amount: '', type: 'gasto', categoryId: '' });
 
       const calendarData = useMemo(() => {
         const year = currentDate.getFullYear();
@@ -917,7 +919,7 @@
           
           runningBalance += (dayIncome - dayExpense);
 
-          days.push({ day, dateStr, dayIncome, dayExpense, balance: runningBalance });
+          days.push({ day, dateStr, dayIncome, dayExpense, balance: runningBalance, txs: dayTxs });
         }
         return { days, initialBalance };
       }, [currentDate, transactions]);
@@ -925,6 +927,22 @@
       const changeMonth = (offset) => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
       const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
       const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+      // Obtenemos los datos del día seleccionado en tiempo real
+      const selectedDayData = selectedDateStr ? calendarData.days.find(d => d && d.dateStr === selectedDateStr) : null;
+
+      const handleAddSubmit = (e) => {
+        e.preventDefault();
+        if (!newTx.description || !newTx.amount) return;
+        onAdd({
+          type: newTx.type,
+          description: newTx.description,
+          amount: parseFloat(newTx.amount),
+          date: selectedDateStr,
+          categoryId: newTx.categoryId
+        });
+        setNewTx({ description: '', amount: '', type: 'gasto', categoryId: '' });
+      };
 
       return (
         <div className="space-y-6">
@@ -948,7 +966,11 @@
                 if (!dayData) return <div key={`empty-${index}`} className="min-h-[120px] bg-slate-50/50 border-r border-b border-slate-100 p-2"></div>;
                 const isToday = dayData.dateStr === new Date().toISOString().split('T')[0];
                 return (
-                  <div key={dayData.dateStr} className={`min-h-[120px] border-r border-b border-slate-100 p-2 flex flex-col transition-colors ${isToday ? 'bg-emerald-50/30' : 'hover:bg-slate-50'}`}>
+                  <div 
+                    key={dayData.dateStr} 
+                    onClick={() => setSelectedDateStr(dayData.dateStr)}
+                    className={`min-h-[120px] border-r border-b border-slate-100 p-2 flex flex-col transition-all cursor-pointer hover:shadow-md hover:z-10 relative ${isToday ? 'bg-emerald-50/30' : 'hover:bg-slate-50'}`}
+                  >
                     <div className="flex justify-between items-start mb-2">
                       <span className={`text-sm font-semibold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600'}`}>{dayData.day}</span>
                     </div>
@@ -964,6 +986,90 @@
               })}
             </div>
           </div>
+
+          {/* Modal de Detalle del Día */}
+          {selectedDateStr && selectedDayData && (
+            <div className="fixed inset-0 bg-slate-900/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
+                
+                {/* Cabecera del Modal */}
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">Movimientos del Día</h3>
+                    <p className="text-sm text-slate-500">{formatDate(selectedDayData.dateStr)}</p>
+                  </div>
+                  <button onClick={() => {setSelectedDateStr(null); setNewTx({ description: '', amount: '', type: 'gasto', categoryId: '' })}} className="p-2 text-slate-400 hover:text-slate-600 bg-white border border-slate-200 rounded-lg shadow-sm transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Lista de Movimientos */}
+                <div className="p-6 overflow-y-auto flex-1 bg-white">
+                  {selectedDayData.txs.length === 0 ? (
+                    <div className="text-center py-8 text-slate-500">
+                      <CalendarDays className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                      <p>No hay movimientos registrados en esta fecha.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {selectedDayData.txs.map(tx => {
+                        const cat = categories.find(c => c.id === tx.categoryId);
+                        return (
+                          <div key={tx.id} className="flex justify-between items-center p-4 rounded-xl border border-slate-100 bg-slate-50/50">
+                            <div>
+                              <p className="font-semibold text-slate-800 text-sm">{tx.description}</p>
+                              <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                                <Tags className="w-3 h-3" /> {cat ? cat.name : 'Sin categoría'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <p className={`font-bold text-sm ${tx.type === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {tx.type === 'ingreso' ? '+' : '-'}{formatCurrency(tx.amount)}
+                              </p>
+                              <button onClick={() => onDelete(tx.id)} className="p-1.5 text-slate-400 hover:text-rose-500 bg-white shadow-sm border border-slate-200 rounded-md transition-colors" title="Eliminar">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Formulario para Agregar Movimiento Rápido */}
+                <div className="p-6 border-t border-slate-100 bg-slate-50">
+                  <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <PlusCircle className="w-4 h-4 text-emerald-500" /> Añadir movimiento en esta fecha
+                  </h4>
+                  <form onSubmit={handleAddSubmit} className="space-y-3">
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex-1">
+                        <input type="text" required placeholder="Descripción (Ej. Cine)" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={newTx.description} onChange={e => setNewTx({...newTx, description: e.target.value})} />
+                      </div>
+                      <div className="w-full sm:w-32">
+                        <input type="number" required min="0" step="0.01" placeholder="Monto" className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={newTx.amount} onChange={e => setNewTx({...newTx, amount: e.target.value})} />
+                      </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <select className={`w-full sm:w-32 px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${newTx.type === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`} value={newTx.type} onChange={e => setNewTx({...newTx, type: e.target.value})}>
+                        <option value="gasto">Gasto</option>
+                        <option value="ingreso">Ingreso</option>
+                      </select>
+                      <select className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white" value={newTx.categoryId} onChange={e => setNewTx({...newTx, categoryId: e.target.value})}>
+                        <option value="">Sin categoría</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <button type="submit" className="w-full sm:w-auto px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-medium transition-colors">
+                        Guardar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+              </div>
+            </div>
+          )}
         </div>
       );
     }
